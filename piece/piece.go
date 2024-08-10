@@ -4,19 +4,11 @@ import (
 	"math/rand"
 	"slices"
 
+	"github.com/deitrix/tetris/cell"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
 var (
-	Border = Piece{
-		Mask: []int{
-			1,
-		},
-		Color:  newColorScale(0.5, 0.5, 0.5, 1),
-		Width:  1,
-		Height: 1,
-	}
-
 	I = Piece{
 		Mask: []int{
 			0, 0, 0, 0,
@@ -24,7 +16,7 @@ var (
 			1, 1, 1, 1,
 			0, 0, 0, 0,
 		},
-		Color:  newColorScale(0.19, 0.78, 0.94, 1),
+		Tint:   cell.Cyan,
 		Width:  4,
 		Height: 4,
 	}
@@ -35,7 +27,7 @@ var (
 			1, 1, 1,
 			0, 0, 0,
 		},
-		Color:  newColorScale(0.35, 0.4, 0.68, 1),
+		Tint:   cell.Blue,
 		Width:  3,
 		Height: 3,
 	}
@@ -46,7 +38,7 @@ var (
 			1, 1, 1,
 			0, 0, 0,
 		},
-		Color:  newColorScale(0.94, 0.47, 0.13, 1),
+		Tint:   cell.Orange,
 		Width:  3,
 		Height: 3,
 	}
@@ -56,7 +48,7 @@ var (
 			1, 1,
 			1, 1,
 		},
-		Color:  newColorScale(0.97, 0.83, 0.03, 1),
+		Tint:   cell.Yellow,
 		Width:  2,
 		Height: 2,
 	}
@@ -67,7 +59,7 @@ var (
 			1, 1, 0,
 			0, 0, 0,
 		},
-		Color:  newColorScale(0.26, 0.71, 0.26, 1),
+		Tint:   cell.Green,
 		Width:  3,
 		Height: 3,
 	}
@@ -78,7 +70,7 @@ var (
 			1, 1, 1,
 			0, 0, 0,
 		},
-		Color:  newColorScale(0.68, 0.3, 0.61, 1),
+		Tint:   cell.Purple,
 		Width:  3,
 		Height: 3,
 	}
@@ -89,7 +81,7 @@ var (
 			0, 1, 1,
 			0, 0, 0,
 		},
-		Color:  newColorScale(0.94, 0.13, 0.16, 1),
+		Tint:   cell.Red,
 		Width:  3,
 		Height: 3,
 	}
@@ -97,7 +89,7 @@ var (
 
 type Piece struct {
 	Mask          []int
-	Color         ebiten.ColorScale
+	Tint          cell.Tint
 	Width, Height int
 	X, Y          int
 }
@@ -134,7 +126,7 @@ func (p Piece) TrimSpace() Piece {
 	}
 	return Piece{
 		Mask:   newMask,
-		Color:  p.Color,
+		Tint:   p.Tint,
 		X:      p.X,
 		Y:      p.Y,
 		Width:  newWidth,

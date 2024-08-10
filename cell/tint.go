@@ -1,0 +1,34 @@
+package cell
+
+import "image/color"
+
+// Tint enumerates the possible cell colors.
+type Tint uint
+
+const (
+	Air Tint = iota
+	Wall
+	Cyan
+	Blue
+	Orange
+	Yellow
+	Green
+	Purple
+	Red
+)
+
+var tintColor = map[Tint]color.RGBA{
+	Air:    {0x00, 0x00, 0x00, 0x00}, // #000000
+	Wall:   {0x7f, 0x7f, 0x7f, 0xff}, // #7f7f7f
+	Cyan:   {0x31, 0xc7, 0xef, 0xff}, // #31c7ef
+	Blue:   {0x5a, 0x65, 0xad, 0xff}, // #5a65ad
+	Orange: {0xef, 0x79, 0x21, 0xff}, // #ef7921
+	Yellow: {0xf7, 0xd3, 0x08, 0xff}, // #f7d308
+	Green:  {0x42, 0xb6, 0x42, 0xff}, // #42b642
+	Purple: {0xad, 0x4d, 0x9c, 0xff}, // #ad4d9c
+	Red:    {0xef, 0x20, 0x29, 0xff}, // #ef2029
+}
+
+func (t Tint) RGBA() color.RGBA {
+	return tintColor[t]
+}
