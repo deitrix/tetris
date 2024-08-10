@@ -17,7 +17,7 @@ const (
 	Red
 )
 
-var tintColor = map[Tint]color.RGBA{
+var tintNRGBA = map[Tint]color.NRGBA{
 	Air:    {0x00, 0x00, 0x00, 0x00}, // #000000
 	Wall:   {0x7f, 0x7f, 0x7f, 0xff}, // #7f7f7f
 	Cyan:   {0x31, 0xc7, 0xef, 0xff}, // #31c7ef
@@ -29,6 +29,6 @@ var tintColor = map[Tint]color.RGBA{
 	Red:    {0xef, 0x20, 0x29, 0xff}, // #ef2029
 }
 
-func (t Tint) RGBA() color.RGBA {
-	return tintColor[t]
+func (t Tint) NRGBA() color.NRGBA {
+	return tintNRGBA[t]
 }

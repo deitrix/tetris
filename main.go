@@ -305,7 +305,7 @@ func (g *Game) renderPiece(screen, sprite *ebiten.Image, p piece.Piece, xoff, yo
 
 func drawCell(screen *ebiten.Image, img *ebiten.Image, x, y, width, height int, tint cell.Tint) {
 	var op ebiten.DrawImageOptions
-	op.ColorScale.ScaleWithColor(tint.RGBA())
+	op.ColorScale.ScaleWithColor(tint.NRGBA())
 	op.GeoM.Scale(float64(width)/float64(img.Bounds().Dx()), float64(height)/float64(img.Bounds().Dy()))
 	op.GeoM.Translate(float64(x), float64(y))
 	screen.DrawImage(img, &op)
