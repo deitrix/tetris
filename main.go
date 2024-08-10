@@ -4,157 +4,13 @@ import (
 	_ "embed"
 	"log"
 	"math"
-	"math/rand"
-	"slices"
 	"time"
 
+	"github.com/deitrix/tetris/piece"
 	"github.com/deitrix/tetris/sprite"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
-
-type Piece struct {
-	Mask          []int
-	Color         ebiten.ColorScale
-	Width, Height int
-	X, Y          int
-}
-
-// TrimSpace removes empty rows and columns from the piece
-func (p Piece) TrimSpace() Piece {
-	minX, minY, maxX, maxY := 100, 100, 0, 0
-	for i := range p.Mask {
-		if p.Mask[i] == 0 {
-			continue
-		}
-		x := i % p.Width
-		y := i / p.Width
-		if x < minX {
-			minX = x
-		}
-		if y < minY {
-			minY = y
-		}
-		if x > maxX {
-			maxX = x
-		}
-		if y > maxY {
-			maxY = y
-		}
-	}
-	newMask := make([]int, (maxX-minX+1)*(maxY-minY+1))
-	newWidth := maxX - minX + 1
-	for i := range len(newMask) {
-		x := i % newWidth
-		y := i / newWidth
-		ii := (y+minY)*p.Width + x + minX
-		newMask[i] = p.Mask[ii]
-	}
-	return Piece{
-		Mask:   newMask,
-		Color:  p.Color,
-		X:      p.X,
-		Y:      p.Y,
-		Width:  newWidth,
-		Height: maxY - minY + 1,
-	}
-}
-
-func RandomPiece() Piece {
-	return ClonePiece(pieces[rand.Intn(len(pieces))])
-}
-
-func ClonePiece(p Piece) Piece {
-	p.Mask = slices.Clone(p.Mask)
-	return p
-}
-
-var pieces = []Piece{
-	{
-		Mask: []int{
-			0, 0, 0, 0,
-			0, 0, 0, 0,
-			1, 1, 1, 1,
-			0, 0, 0, 0,
-		},
-		Color:  newColorScale(0.19, 0.78, 0.94, 1),
-		Width:  4,
-		Height: 4,
-	},
-	{
-		Mask: []int{
-			1, 0, 0,
-			1, 1, 1,
-			0, 0, 0,
-		},
-		Color:  newColorScale(0.35, 0.4, 0.68, 1),
-		Width:  3,
-		Height: 3,
-	},
-	{
-		Mask: []int{
-			0, 0, 1,
-			1, 1, 1,
-			0, 0, 0,
-		},
-		Color:  newColorScale(0.94, 0.47, 0.13, 1),
-		Width:  3,
-		Height: 3,
-	},
-	{
-		Mask: []int{
-			1, 1,
-			1, 1,
-		},
-		Color:  newColorScale(0.97, 0.83, 0.03, 1),
-		Width:  2,
-		Height: 2,
-	},
-	{
-		Mask: []int{
-			0, 1, 1,
-			1, 1, 0,
-			0, 0, 0,
-		},
-		Color:  newColorScale(0.26, 0.71, 0.26, 1),
-		Width:  3,
-		Height: 3,
-	},
-	{
-		Mask: []int{
-			0, 1, 0,
-			1, 1, 1,
-			0, 0, 0,
-		},
-		Color:  newColorScale(0.68, 0.3, 0.61, 1),
-		Width:  3,
-		Height: 3,
-	},
-	{
-		Mask: []int{
-			1, 1, 0,
-			0, 1, 1,
-			0, 0, 0,
-		},
-		Color:  newColorScale(0.94, 0.13, 0.16, 1),
-		Width:  3,
-		Height: 3,
-	},
-}
-
-var rotateIndices = map[int][]int{
-	9: {
-		2, 5, 8,
-		1, 4, 7,
-		0, 3, 6,
-	},
-	16: {
-		3, 7, 11, 15,
-		2, 6, 10, 14,
-		1, 5, 9, 13,
-		0, 4, 8, 12,
-	},
-}
 
 type Cell struct {
 	Color ebiten.ColorScale
@@ -164,16 +20,16 @@ type Game struct {
 	// Cells holds the board state, not including the falling piece
 	Cells []*Cell
 	// FallingPiece is the piece currently being controlled by the player
-	FallingPiece Piece
+	FallingPiece piece.Piece
 	// Queue is the next 3 pieces that will fall
-	Queue [3]Piece
+	Queue [3]piece.Piece
 	// HoldPiece is the piece that the player has held for later
-	HoldPiece *Piece
+	HoldPiece *piece.Piece
 
 	// PauseFallFast is a flag that prevents the player from accidentally fast-falling the next
 	// piece after the current piece has landed. This is set to true when the player fast-falls a
-	// piece, and it gets cemented into the board. It is reset to false when the player releases the
-	// down key.
+	// piece, and it gets committed into the board. It is reset to false when the player releases
+	// the down key.
 	PauseFallFast bool
 	// DidHoldPiece is a flag that prevents the player from holding a piece more than once per turn.
 	DidHoldPiece bool
@@ -187,37 +43,26 @@ type Game struct {
 
 func NewGame() *Game {
 	g := &Game{
-		Cells:            make([]*Cell, 12*21),
-		LastAutoFallTime: time.Now(),
-		AutoFallStep:     500 * time.Millisecond,
+		Cells:        make([]*Cell, 12*21),
+		AutoFallStep: 500 * time.Millisecond,
 	}
-	for i := 0; i < 3; i++ {
-		g.Queue[i] = RandomPiece()
-	}
+	g.fillQueue()
 	g.placeBorderCells()
-	g.nextPiece()
+	g.loadNextPiece()
 	return g
-}
-
-var borderColour = newColorScale(0.5, 0.5, 0.5, 1)
-
-func newColorScale(r, g, b, a float32) ebiten.ColorScale {
-	var c ebiten.ColorScale
-	c.Scale(r, g, b, a)
-	return c
 }
 
 func (g *Game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
-		g.cementPiece()
+		g.commitPiece()
 		return nil
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyC) && !g.DidHoldPiece {
 		if g.HoldPiece == nil {
-			p := ClonePiece(g.FallingPiece)
+			p := g.FallingPiece.Clone()
 			g.HoldPiece = &p
-			g.nextPiece()
+			g.loadNextPiece()
 		} else {
 			g.FallingPiece, *g.HoldPiece = *g.HoldPiece, g.FallingPiece
 		}
@@ -244,7 +89,7 @@ func (g *Game) Update() error {
 		if g.canMoveDown(g.FallingPiece) {
 			g.FallingPiece.Y++
 		} else {
-			g.cementPiece()
+			g.commitPiece()
 			if isFallingFast {
 				g.PauseFallFast = true
 			}
@@ -261,10 +106,22 @@ func (g *Game) Update() error {
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyUp) && g.canRotate() {
-		g.rotate()
+		g.FallingPiece = g.FallingPiece.Rotate()
 	}
 
 	return nil
+}
+
+func (g *Game) Draw(screen *ebiten.Image) {
+	g.drawCells(screen)
+	g.renderPiece(screen, sprite.Ghost, g.ghostPiece(), 400, 0)
+	g.renderPiece(screen, sprite.Cell, g.FallingPiece, 400, 0)
+	g.drawQueue(screen)
+	g.drawHeld(screen)
+}
+
+func (g *Game) Layout(_, _ int) (screenWidth, screenHeight int) {
+	return 12*64 + 800, 21 * 64
 }
 
 func (g *Game) canMoveLeft() bool {
@@ -299,7 +156,7 @@ func (g *Game) canMoveRight() bool {
 	return true
 }
 
-func (g *Game) canMoveDown(p Piece) bool {
+func (g *Game) canMoveDown(p piece.Piece) bool {
 	for i := range p.Mask {
 		if p.Mask[i] == 0 {
 			continue
@@ -315,17 +172,7 @@ func (g *Game) canMoveDown(p Piece) bool {
 	return true
 }
 
-func (g *Game) rotatedPiece() Piece {
-	p := g.FallingPiece
-	newMask := make([]int, len(p.Mask))
-	for i := range p.Mask {
-		newMask[rotateIndices[len(p.Mask)][i]] = p.Mask[i]
-	}
-	p.Mask = newMask
-	return p
-}
-
-func (g *Game) ghostPiece() Piece {
+func (g *Game) ghostPiece() piece.Piece {
 	p := g.FallingPiece
 	for {
 		if !g.canMoveDown(p) {
@@ -340,7 +187,7 @@ func (g *Game) canRotate() bool {
 	if len(g.FallingPiece.Mask) == 4 {
 		return false
 	}
-	p := g.rotatedPiece()
+	p := g.FallingPiece.Rotate()
 	for i := range p.Mask {
 		if p.Mask[i] == 0 {
 			continue
@@ -355,12 +202,10 @@ func (g *Game) canRotate() bool {
 	return true
 }
 
-func (g *Game) rotate() {
-	g.FallingPiece = g.rotatedPiece()
-}
-
-// cementPiece cements the falling piece into the board
-func (g *Game) cementPiece() {
+// commitPiece commits the currently falling piece into the board, such that it can no longer be
+// moved. It also loads the next piece into the falling piece, and clears any lines that have been
+// filled.
+func (g *Game) commitPiece() {
 	for g.canMoveDown(g.FallingPiece) {
 		g.FallingPiece.Y++
 	}
@@ -375,17 +220,17 @@ func (g *Game) cementPiece() {
 			Color: g.FallingPiece.Color,
 		}
 	}
-	g.nextPiece()
+	g.loadNextPiece()
 	g.clearLines()
 	g.DidHoldPiece = false
 }
 
-func (g *Game) nextPiece() {
+func (g *Game) loadNextPiece() {
 	g.FallingPiece = g.Queue[0]
 	for i := 0; i < 2; i++ {
 		g.Queue[i] = g.Queue[i+1]
 	}
-	g.Queue[2] = RandomPiece()
+	g.Queue[2] = piece.Rand()
 	g.FallingPiece.X = 4
 	g.FallingPiece.Y = 0
 	g.LastAutoFallTime = time.Now()
@@ -417,7 +262,7 @@ func (g *Game) removeRow(row int) {
 	}
 }
 
-func (g *Game) Draw(screen *ebiten.Image) {
+func (g *Game) drawCells(screen *ebiten.Image) {
 	for x := 0; x < 12; x++ {
 		for y := 0; y < 21; y++ {
 			i := y*12 + x
@@ -429,14 +274,18 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			})
 		}
 	}
-	g.renderPiece(screen, sprite.Ghost, g.ghostPiece(), 400, 0)
-	g.renderPiece(screen, sprite.Cell, g.FallingPiece, 400, 0)
+}
+
+func (g *Game) drawQueue(screen *ebiten.Image) {
 	for i, p := range g.Queue {
 		p = p.TrimSpace()
 		xoff := 1400 - p.Width*64/2
 		yoff := 200 + i*200 - p.Height*64/2
 		g.renderPiece(screen, sprite.Cell, p.TrimSpace(), xoff, yoff)
 	}
+}
+
+func (g *Game) drawHeld(screen *ebiten.Image) {
 	if p := g.HoldPiece; p != nil {
 		xoff := 200 - p.Width*64/2
 		yoff := 200 - p.Height*64/2
@@ -444,7 +293,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 }
 
-func (g *Game) renderPiece(screen, sprite *ebiten.Image, p Piece, xoff, yoff int) {
+func (g *Game) renderPiece(screen, sprite *ebiten.Image, p piece.Piece, xoff, yoff int) {
 	for i := range p.Mask {
 		if p.Mask[i] == 0 {
 			continue
@@ -466,8 +315,10 @@ func drawImage(screen *ebiten.Image, img *ebiten.Image, x, y, width, height int,
 	screen.DrawImage(img, op)
 }
 
-func (g *Game) Layout(_, _ int) (screenWidth, screenHeight int) {
-	return 12*64 + 800, 21 * 64
+func (g *Game) fillQueue() {
+	for i := 0; i < 3; i++ {
+		g.Queue[i] = piece.Rand()
+	}
 }
 
 func (g *Game) placeBorderCells() {
@@ -475,9 +326,7 @@ func (g *Game) placeBorderCells() {
 		for y := 0; y < 21; y++ {
 			if x == 0 || x == 11 || y == 20 {
 				i := y*12 + x
-				g.Cells[i] = &Cell{
-					Color: borderColour,
-				}
+				g.Cells[i] = &Cell{Color: piece.Border.Color}
 			}
 		}
 	}
