@@ -3,7 +3,6 @@ package main
 import (
 	_ "embed"
 	"log"
-	"math"
 	"time"
 
 	"github.com/deitrix/tetris/cell"
@@ -110,10 +109,8 @@ func (g *Game) canMoveLeft() bool {
 		if g.FallingPiece.Mask[i] == 0 {
 			continue
 		}
-		width := int(math.Sqrt(float64(len(g.FallingPiece.Mask))))
-		x := g.FallingPiece.X + i%width
-		y := g.FallingPiece.Y + i/width
-
+		x := g.FallingPiece.X + i%g.FallingPiece.Width
+		y := g.FallingPiece.Y + i/g.FallingPiece.Width
 		if g.Cells[y*12+x-1] != nil {
 			return false
 		}
@@ -126,10 +123,8 @@ func (g *Game) canMoveRight() bool {
 		if g.FallingPiece.Mask[i] == 0 {
 			continue
 		}
-		width := int(math.Sqrt(float64(len(g.FallingPiece.Mask))))
-		x := g.FallingPiece.X + i%width
-		y := g.FallingPiece.Y + i/width
-
+		x := g.FallingPiece.X + i%g.FallingPiece.Width
+		y := g.FallingPiece.Y + i/g.FallingPiece.Width
 		if g.Cells[y*12+x+1] != nil {
 			return false
 		}
@@ -142,10 +137,8 @@ func (g *Game) canMoveDown(p piece.Piece) bool {
 		if p.Mask[i] == 0 {
 			continue
 		}
-		width := int(math.Sqrt(float64(len(p.Mask))))
-		x := p.X + i%width
-		y := p.Y + i/width
-
+		x := p.X + i%p.Width
+		y := p.Y + i/p.Width
 		if g.Cells[(y+1)*12+x] != nil {
 			return false
 		}
@@ -173,9 +166,8 @@ func (g *Game) canRotate() bool {
 		if p.Mask[i] == 0 {
 			continue
 		}
-		width := int(math.Sqrt(float64(len(p.Mask))))
-		x := p.X + i%width
-		y := p.Y + i/width
+		x := p.X + i%p.Width
+		y := p.Y + i/p.Width
 		if g.Cells[y*12+x] != nil {
 			return false
 		}
@@ -194,9 +186,8 @@ func (g *Game) commitPiece() {
 		if g.FallingPiece.Mask[i] == 0 {
 			continue
 		}
-		width := int(math.Sqrt(float64(len(g.FallingPiece.Mask))))
-		x := g.FallingPiece.X + i%width
-		y := g.FallingPiece.Y + i/width
+		x := g.FallingPiece.X + i%g.FallingPiece.Width
+		y := g.FallingPiece.Y + i/g.FallingPiece.Width
 		g.Cells[y*12+x] = &Cell{
 			Tint: g.FallingPiece.Tint,
 		}
