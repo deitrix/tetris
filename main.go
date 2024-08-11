@@ -12,6 +12,36 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
+const (
+	// cellSize is the size of each cell in pixels
+	cellSize = 64
+	// boardWidth is the width of the board, not including the walls
+	boardWidth = 20
+	// boardHeight is the height of the board, not including the floor
+	boardHeight = 50
+	// floorThickness is the thickness of the floor at the bottom of the board. Must be at least 1.
+	floorThickness = 5
+	// wallThickness is the thickness of the walls on the left and right sides of the board. Must be
+	// at least 1.
+	wallThickness = 2
+	// queueSize is the number of pieces that are shown in the queue
+	queueSize = 10
+	// minAutoFallStep is the minimum time between each automatic fall of the piece
+	minAutoFallStep = 25 * time.Millisecond
+	// initialAutoFallStep is the time between each automatic fall of the piece at the start of the
+	// game
+	initialAutoFallStep = 500 * time.Millisecond
+	// autoFallStepDecrement is the amount of time that the auto-fall step decreases by each time a
+	// line is cleared
+	autoFallStepDecrement = 5 * time.Millisecond
+)
+
+const (
+	boardWidthWithWalls  = boardWidth + wallThickness*2
+	boardHeightWithFloor = boardHeight + floorThickness
+	cellCount            = boardWidthWithWalls * boardHeightWithFloor
+)
+
 type Cell struct {
 	Tint cell.Tint
 }
@@ -20,7 +50,7 @@ type Game struct {
 	// Cells holds the board state, not including the falling piece
 	Cells []*Cell
 	// Queue is the next 3 pieces that will fall
-	Queue [3]piece.Piece
+	Queue [queueSize]piece.Piece
 
 	// DidHoldPiece is a flag that prevents the player from holding a piece more than once per turn.
 	DidHoldPiece bool
@@ -46,8 +76,8 @@ type Game struct {
 
 func NewGame() *Game {
 	g := &Game{
-		Cells:        make([]*Cell, 12*21),
-		AutoFallStep: 500 * time.Millisecond,
+		Cells:        make([]*Cell, cellCount),
+		AutoFallStep: initialAutoFallStep,
 	}
 	g.fillQueue()
 	g.placeBorderCells()
@@ -75,12 +105,12 @@ func (g *Game) Update() error {
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyUp) && g.canRotate() {
-		g.FallingPiece = g.FallingPiece.Rotate()
+		g.FallingPiece.Rotate()
 	}
 
 	fallStep := g.AutoFallStep
 	if !g.FastFallingPaused && ebiten.IsKeyPressed(ebiten.KeyDown) {
-		fallStep = 25 * time.Millisecond // fast-fall speed
+		fallStep = minAutoFallStep // fast-fall speed
 		g.FastFalling = true
 	}
 
@@ -94,14 +124,16 @@ func (g *Game) Update() error {
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawCells(screen)
-	g.renderPiece(screen, sprite.Ghost, g.ghostPiece(), 400, 0)
-	g.renderPiece(screen, sprite.Cell, g.FallingPiece, 400, 0)
+	g.renderPiece(screen, sprite.Ghost, g.ghostPiece(), 6*cellSize, 0)
+	g.renderPiece(screen, sprite.Cell, g.FallingPiece, 6*cellSize, 0)
 	g.drawQueue(screen)
 	g.drawHeld(screen)
 }
 
 func (g *Game) Layout(_, _ int) (screenWidth, screenHeight int) {
-	return 12*64 + 800, 21 * 64
+	screenWidth = 6*cellSize + boardWidthWithWalls*cellSize + 6*cellSize
+	screenHeight = max(boardHeightWithFloor*cellSize, cellSize+3*queueSize*cellSize)
+	return
 }
 
 func (g *Game) canMoveLeft() bool {
@@ -111,7 +143,7 @@ func (g *Game) canMoveLeft() bool {
 		}
 		x := g.FallingPiece.X + i%g.FallingPiece.Width
 		y := g.FallingPiece.Y + i/g.FallingPiece.Width
-		if g.Cells[y*12+x-1] != nil {
+		if g.Cells[y*boardWidthWithWalls+x-1] != nil {
 			return false
 		}
 	}
@@ -125,7 +157,7 @@ func (g *Game) canMoveRight() bool {
 		}
 		x := g.FallingPiece.X + i%g.FallingPiece.Width
 		y := g.FallingPiece.Y + i/g.FallingPiece.Width
-		if g.Cells[y*12+x+1] != nil {
+		if g.Cells[y*boardWidthWithWalls+x+1] != nil {
 			return false
 		}
 	}
@@ -139,7 +171,7 @@ func (g *Game) canMoveDown(p piece.Piece) bool {
 		}
 		x := p.X + i%p.Width
 		y := p.Y + i/p.Width
-		if g.Cells[(y+1)*12+x] != nil {
+		if g.Cells[(y+1)*boardWidthWithWalls+x] != nil {
 			return false
 		}
 	}
@@ -161,14 +193,15 @@ func (g *Game) canRotate() bool {
 	if len(g.FallingPiece.Mask) == 4 {
 		return false
 	}
-	p := g.FallingPiece.Rotate()
+	p := g.FallingPiece.Clone()
+	p.Rotate()
 	for i := range p.Mask {
 		if p.Mask[i] == 0 {
 			continue
 		}
 		x := p.X + i%p.Width
 		y := p.Y + i/p.Width
-		if g.Cells[y*12+x] != nil {
+		if g.Cells[y*boardWidthWithWalls+x] != nil {
 			return false
 		}
 	}
@@ -188,7 +221,7 @@ func (g *Game) commitPiece() {
 		}
 		x := g.FallingPiece.X + i%g.FallingPiece.Width
 		y := g.FallingPiece.Y + i/g.FallingPiece.Width
-		g.Cells[y*12+x] = &Cell{
+		g.Cells[y*boardWidthWithWalls+x] = &Cell{
 			Tint: g.FallingPiece.Tint,
 		}
 	}
@@ -205,8 +238,10 @@ func (g *Game) holdPiece() {
 	} else {
 		g.FallingPiece, *g.HoldPiece = *g.HoldPiece, g.FallingPiece
 	}
-	g.FallingPiece.X = 4
+	g.FallingPiece.ResetRotation()
+	g.FallingPiece.X = boardWidthWithWalls/2 - g.FallingPiece.Width/2
 	g.FallingPiece.Y = 0
+	g.HoldPiece.ResetRotation()
 	g.HoldPiece.X = 0
 	g.HoldPiece.Y = 0
 	g.DidHoldPiece = true
@@ -228,20 +263,20 @@ func (g *Game) fall(step time.Duration) {
 
 func (g *Game) loadNextPiece() {
 	g.FallingPiece = g.Queue[0]
-	for i := 0; i < 2; i++ {
+	for i := 0; i < queueSize-1; i++ {
 		g.Queue[i] = g.Queue[i+1]
 	}
-	g.Queue[2] = piece.Rand()
-	g.FallingPiece.X = 4
+	g.Queue[queueSize-1] = piece.Rand()
+	g.FallingPiece.X = boardWidthWithWalls/2 - g.FallingPiece.Width/2
 	g.FallingPiece.Y = 0
 	g.LastAutoFallTime = time.Now()
 }
 
 func (g *Game) clearLines() {
-	for y := 0; y < 20; y++ {
+	for y := 0; y < boardHeight; y++ {
 		full := true
-		for x := 1; x < 11; x++ {
-			if g.Cells[y*12+x] == nil {
+		for x := wallThickness; x < boardWidthWithWalls-wallThickness; x++ {
+			if g.Cells[y*boardWidthWithWalls+x] == nil {
 				full = false
 				break
 			}
@@ -254,23 +289,23 @@ func (g *Game) clearLines() {
 
 func (g *Game) removeRow(row int) {
 	for y := row; y > 0; y-- {
-		for x := 1; x < 11; x++ {
-			g.Cells[y*12+x] = g.Cells[(y-1)*12+x]
+		for x := wallThickness; x < boardWidthWithWalls-wallThickness; x++ {
+			g.Cells[y*boardWidthWithWalls+x] = g.Cells[(y-1)*boardWidthWithWalls+x]
 		}
 	}
-	if g.AutoFallStep > 25*time.Millisecond {
-		g.AutoFallStep -= 5 * time.Millisecond
+	if g.AutoFallStep > minAutoFallStep {
+		g.AutoFallStep -= autoFallStepDecrement
 	}
 }
 
 func (g *Game) drawCells(screen *ebiten.Image) {
-	for x := 0; x < 12; x++ {
-		for y := 0; y < 21; y++ {
-			i := y*12 + x
+	for x := 0; x < boardWidthWithWalls; x++ {
+		for y := 0; y < boardHeightWithFloor; y++ {
+			i := y*boardWidthWithWalls + x
 			if g.Cells[i] == nil {
 				continue
 			}
-			drawCell(screen, sprite.Cell, 400+x*64, y*64, 64, 64, g.Cells[i].Tint)
+			drawCell(screen, sprite.Cell, 6*cellSize+x*cellSize, y*cellSize, cellSize, cellSize, g.Cells[i].Tint)
 		}
 	}
 }
@@ -278,17 +313,18 @@ func (g *Game) drawCells(screen *ebiten.Image) {
 func (g *Game) drawQueue(screen *ebiten.Image) {
 	for i, p := range g.Queue {
 		p = p.TrimSpace()
-		xoff := 1400 - p.Width*64/2
-		yoff := 200 + i*200 - p.Height*64/2
+		xoff := (6+boardWidthWithWalls+3)*cellSize - p.Width*cellSize/2
+		yoff := 2*cellSize + i*(3*cellSize) - p.Height*cellSize/2
 		g.renderPiece(screen, sprite.Cell, p.TrimSpace(), xoff, yoff)
 	}
 }
 
 func (g *Game) drawHeld(screen *ebiten.Image) {
 	if p := g.HoldPiece; p != nil {
-		xoff := 200 - p.Width*64/2
-		yoff := 200 - p.Height*64/2
-		g.renderPiece(screen, sprite.Cell, *p, xoff, yoff)
+		p := p.TrimSpace()
+		xoff := 3*cellSize - p.Width*cellSize/2
+		yoff := 2*cellSize - p.Height*cellSize/2
+		g.renderPiece(screen, sprite.Cell, p, xoff, yoff)
 	}
 }
 
@@ -299,7 +335,7 @@ func (g *Game) renderPiece(screen, sprite *ebiten.Image, p piece.Piece, xoff, yo
 		}
 		x := i % p.Width
 		y := i / p.Width
-		drawCell(screen, sprite, (p.X+x)*64+xoff, (p.Y+y)*64+yoff, 64, 64, p.Tint)
+		drawCell(screen, sprite, (p.X+x)*cellSize+xoff, (p.Y+y)*cellSize+yoff, cellSize, cellSize, p.Tint)
 	}
 }
 
@@ -312,16 +348,16 @@ func drawCell(screen *ebiten.Image, img *ebiten.Image, x, y, width, height int, 
 }
 
 func (g *Game) fillQueue() {
-	for i := 0; i < 3; i++ {
+	for i := 0; i < queueSize; i++ {
 		g.Queue[i] = piece.Rand()
 	}
 }
 
 func (g *Game) placeBorderCells() {
-	for x := 0; x < 12; x++ {
-		for y := 0; y < 21; y++ {
-			if x == 0 || x == 11 || y == 20 {
-				i := y*12 + x
+	for x := 0; x < boardWidthWithWalls; x++ {
+		for y := 0; y < boardHeightWithFloor; y++ {
+			if x < wallThickness || x >= boardWidthWithWalls-wallThickness || y >= boardHeightWithFloor-floorThickness {
+				i := y*boardWidthWithWalls + x
 				g.Cells[i] = &Cell{Tint: cell.Wall}
 			}
 		}

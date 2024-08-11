@@ -92,6 +92,7 @@ type Piece struct {
 	Tint          cell.Tint
 	Width, Height int
 	X, Y          int
+	Orientation   int
 }
 
 // TrimSpace removes empty rows and columns from the piece
@@ -139,17 +140,22 @@ func (p Piece) Clone() Piece {
 	return p
 }
 
-func (p Piece) Rotate() Piece {
-	rp := p.Clone()
-	if rp.Width < 3 {
-		return rp
+func (p *Piece) Rotate() {
+	if p.Width < 3 {
+		return
 	}
-	newMask := make([]int, len(rp.Mask))
-	for i := range rp.Mask {
-		newMask[rotateIndices[len(rp.Mask)][i]] = rp.Mask[i]
+	newMask := make([]int, len(p.Mask))
+	for i := range p.Mask {
+		newMask[rotateIndices[len(p.Mask)][i]] = p.Mask[i]
 	}
-	rp.Mask = newMask
-	return rp
+	p.Mask = newMask
+	p.Orientation = (p.Orientation + 1) % 4
+}
+
+func (p *Piece) ResetRotation() {
+	for p.Orientation != 0 {
+		p.Rotate()
+	}
 }
 
 var allPieces = []Piece{I, J, L, O, S, T, Z}
