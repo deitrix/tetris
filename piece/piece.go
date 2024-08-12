@@ -90,6 +90,7 @@ var (
 type Piece struct {
 	Mask          []int
 	Tint          cell.Tint
+	Opacity       int
 	Width, Height int
 	X, Y          int
 	Orientation   int
@@ -126,12 +127,13 @@ func (p Piece) TrimSpace() Piece {
 		newMask[i] = p.Mask[ii]
 	}
 	return Piece{
-		Mask:   newMask,
-		Tint:   p.Tint,
-		X:      p.X,
-		Y:      p.Y,
-		Width:  newWidth,
-		Height: maxY - minY + 1,
+		Mask:    newMask,
+		Tint:    p.Tint,
+		Opacity: p.Opacity,
+		X:       p.X,
+		Y:       p.Y,
+		Width:   newWidth,
+		Height:  maxY - minY + 1,
 	}
 }
 
@@ -161,7 +163,9 @@ func (p *Piece) ResetRotation() {
 var allPieces = []Piece{I, J, L, O, S, T, Z}
 
 func Rand() Piece {
-	return allPieces[rand.Intn(len(allPieces))].Clone()
+	p := allPieces[rand.Intn(len(allPieces))].Clone()
+	p.Opacity = 255
+	return p
 }
 
 var rotateIndices = map[int][]int{

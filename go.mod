@@ -2,7 +2,10 @@ module github.com/deitrix/tetris
 
 go 1.22
 
-require github.com/hajimehoshi/ebiten/v2 v2.7.8
+require (
+	github.com/hajimehoshi/ebiten/v2 v2.7.8
+	golang.org/x/image v0.18.0
+)
 
 require (
 	github.com/ebitengine/gomobile v0.0.0-20240518074828-e86332849895 // indirect
@@ -11,4 +14,5 @@ require (
 	github.com/jezek/xgb v1.1.1 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.20.0 // indirect
+	golang.org/x/text v0.16.0 // indirect
 )

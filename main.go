@@ -2,39 +2,78 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
+	"image/color"
 	"log"
-	"time"
 
 	"github.com/deitrix/tetris/cell"
 	"github.com/deitrix/tetris/piece"
 	"github.com/deitrix/tetris/sprite"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/text"
 )
 
 const (
 	// cellSize is the size of each cell in pixels
 	cellSize = 64
 	// boardWidth is the width of the board, not including the walls
-	boardWidth = 20
+	boardWidth = 10
 	// boardHeight is the height of the board, not including the floor
-	boardHeight = 50
+	boardHeight = 20
 	// floorThickness is the thickness of the floor at the bottom of the board. Must be at least 1.
-	floorThickness = 5
+	floorThickness = 1
 	// wallThickness is the thickness of the walls on the left and right sides of the board. Must be
 	// at least 1.
-	wallThickness = 2
+	wallThickness = 1
 	// queueSize is the number of pieces that are shown in the queue
-	queueSize = 10
-	// minAutoFallStep is the minimum time between each automatic fall of the piece
-	minAutoFallStep = 25 * time.Millisecond
-	// initialAutoFallStep is the time between each automatic fall of the piece at the start of the
-	// game
-	initialAutoFallStep = 500 * time.Millisecond
-	// autoFallStepDecrement is the amount of time that the auto-fall step decreases by each time a
-	// line is cleared
-	autoFallStepDecrement = 5 * time.Millisecond
+	queueSize = 3
 )
+
+// fallSpeed is the number of frames between each automatic fall of the piece at each level
+var fallSpeed = map[int]int{
+	0:  53,
+	1:  49,
+	2:  45,
+	3:  41,
+	4:  37,
+	5:  33,
+	6:  28,
+	7:  22,
+	8:  17,
+	9:  11,
+	10: 10,
+	11: 9,
+	12: 8,
+	13: 7,
+	14: 6,
+	16: 5,
+	18: 4,
+	20: 3,
+	22: 2,
+	29: 1,
+}
+
+var lineScore = map[int]int{
+	1: 40,
+	2: 100,
+	3: 300,
+	4: 1200,
+}
+
+func getLineScore(level, n int) int {
+	return lineScore[n] * (level + 1)
+}
+
+func getFallSpeed(level int) int {
+	if level > 29 {
+		return 1
+	}
+	if speed, ok := fallSpeed[level]; ok {
+		return speed
+	}
+	return getFallSpeed(level - 1)
+}
 
 const (
 	boardWidthWithWalls  = boardWidth + wallThickness*2
@@ -61,23 +100,21 @@ type Game struct {
 	FallingPiece piece.Piece
 	// FastFalling is a flag that indicates whether the player is currently fast-falling the piece
 	FastFalling bool
-	// FastFallingPaused is a flag that prevents the player from accidentally fast-falling the next
-	// piece after the current piece has landed. This is set to true when the player fast-falls a
-	// piece, and it gets committed into the board. It is reset to false when the player releases
-	// the down key.
-	FastFallingPaused bool
 
-	// LastAutoFallTime is the time the current piece last advanced downwards
-	LastAutoFallTime time.Time
-	// AutoFallStep is the time between each automatic fall of the piece. This decreases as the player
-	// clears lines.
-	AutoFallStep time.Duration
+	OpacityDirection bool
+	TicksSinceFall   int
+	TicksSinceMove   int
+	LastChanceTicks  int
+	ScreenWidth      int
+	ScreenHeight     int
+	Level            int
+	Score            int
+	LinesCleared     int
 }
 
 func NewGame() *Game {
 	g := &Game{
-		Cells:        make([]*Cell, cellCount),
-		AutoFallStep: initialAutoFallStep,
+		Cells: make([]*Cell, cellCount),
 	}
 	g.fillQueue()
 	g.placeBorderCells()
@@ -88,6 +125,7 @@ func NewGame() *Game {
 func (g *Game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
 		g.commitPiece()
+		g.Score += g.earlyCommitScore()
 		return nil
 	}
 
@@ -96,29 +134,39 @@ func (g *Game) Update() error {
 		return nil
 	}
 
+	var didMove bool
 	if (inpututil.IsKeyJustPressed(ebiten.KeyLeft) || inpututil.KeyPressDuration(ebiten.KeyLeft) > 10) && g.canMoveLeft() {
 		g.FallingPiece.X--
+		didMove = true
 	}
 
 	if (inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.KeyPressDuration(ebiten.KeyRight) > 10) && g.canMoveRight() {
 		g.FallingPiece.X++
+		didMove = true
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyUp) && g.canRotate() {
 		g.FallingPiece.Rotate()
+		didMove = true
 	}
 
-	fallStep := g.AutoFallStep
-	if !g.FastFallingPaused && ebiten.IsKeyPressed(ebiten.KeyDown) {
-		fallStep = minAutoFallStep // fast-fall speed
+	minTicksSinceFall := getFallSpeed(g.Level)
+	if ebiten.IsKeyPressed(ebiten.KeyDown) {
+		minTicksSinceFall = 1
 		g.FastFalling = true
+		if g.canMoveDown(g.FallingPiece) {
+			didMove = true
+		}
+	} else {
+		g.FastFalling = false
 	}
 
-	if inpututil.IsKeyJustReleased(ebiten.KeyDown) {
-		g.FastFallingPaused = false
+	if didMove {
+		g.TicksSinceMove = 0
+	} else {
+		g.TicksSinceMove++
 	}
-
-	g.fall(fallStep)
+	g.fall(minTicksSinceFall)
 	return nil
 }
 
@@ -128,12 +176,13 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.renderPiece(screen, sprite.Cell, g.FallingPiece, 6*cellSize, 0)
 	g.drawQueue(screen)
 	g.drawHeld(screen)
+	g.drawScore(screen)
 }
 
 func (g *Game) Layout(_, _ int) (screenWidth, screenHeight int) {
-	screenWidth = 6*cellSize + boardWidthWithWalls*cellSize + 6*cellSize
-	screenHeight = max(boardHeightWithFloor*cellSize, cellSize+3*queueSize*cellSize)
-	return
+	g.ScreenWidth = 6*cellSize + boardWidthWithWalls*cellSize + 6*cellSize
+	g.ScreenHeight = max(boardHeightWithFloor*cellSize, cellSize+3*queueSize*cellSize)
+	return g.ScreenWidth, g.ScreenHeight
 }
 
 func (g *Game) canMoveLeft() bool {
@@ -189,6 +238,16 @@ func (g *Game) ghostPiece() piece.Piece {
 	return p
 }
 
+func (g *Game) earlyCommitScore() int {
+	p := g.FallingPiece
+	for i := 0; ; i++ {
+		if !g.canMoveDown(p) {
+			return i * 2
+		}
+		p.Y++
+	}
+}
+
 func (g *Game) canRotate() bool {
 	if len(g.FallingPiece.Mask) == 4 {
 		return false
@@ -228,6 +287,7 @@ func (g *Game) commitPiece() {
 	g.loadNextPiece()
 	g.clearLines()
 	g.DidHoldPiece = false
+	g.LastChanceTicks = 0
 }
 
 func (g *Game) holdPiece() {
@@ -247,17 +307,37 @@ func (g *Game) holdPiece() {
 	g.DidHoldPiece = true
 }
 
-func (g *Game) fall(step time.Duration) {
-	if time.Since(g.LastAutoFallTime) > step {
-		if g.canMoveDown(g.FallingPiece) {
+func (g *Game) fall(minTicksSinceFall int) {
+	if g.canMoveDown(g.FallingPiece) {
+		g.FallingPiece.Opacity = 255
+		if g.TicksSinceFall >= minTicksSinceFall {
 			g.FallingPiece.Y++
-		} else {
-			g.commitPiece()
 			if g.FastFalling {
-				g.FastFallingPaused = true
+				g.Score++
+			}
+			g.TicksSinceFall = 0
+			g.TicksSinceMove = 0
+		} else {
+			g.TicksSinceFall++
+		}
+	} else if g.TicksSinceMove >= 30 || g.LastChanceTicks >= 120 {
+		g.commitPiece()
+		g.TicksSinceFall = 0
+	} else {
+		g.LastChanceTicks++
+		if g.OpacityDirection {
+			g.FallingPiece.Opacity += 8
+			if g.FallingPiece.Opacity >= 255 {
+				g.FallingPiece.Opacity = 255
+				g.OpacityDirection = false
+			}
+		} else {
+			g.FallingPiece.Opacity -= 8
+			if g.FallingPiece.Opacity <= 128 {
+				g.FallingPiece.Opacity = 128
+				g.OpacityDirection = true
 			}
 		}
-		g.LastAutoFallTime = time.Now()
 	}
 }
 
@@ -269,10 +349,10 @@ func (g *Game) loadNextPiece() {
 	g.Queue[queueSize-1] = piece.Rand()
 	g.FallingPiece.X = boardWidthWithWalls/2 - g.FallingPiece.Width/2
 	g.FallingPiece.Y = 0
-	g.LastAutoFallTime = time.Now()
 }
 
 func (g *Game) clearLines() {
+	lines := 0
 	for y := 0; y < boardHeight; y++ {
 		full := true
 		for x := wallThickness; x < boardWidthWithWalls-wallThickness; x++ {
@@ -283,7 +363,13 @@ func (g *Game) clearLines() {
 		}
 		if full {
 			g.removeRow(y)
+			lines++
 		}
+	}
+	if lines > 0 {
+		g.Score += getLineScore(g.Level, lines)
+		g.LinesCleared += lines
+		g.Level = min(g.LinesCleared/10, 29)
 	}
 }
 
@@ -292,9 +378,6 @@ func (g *Game) removeRow(row int) {
 		for x := wallThickness; x < boardWidthWithWalls-wallThickness; x++ {
 			g.Cells[y*boardWidthWithWalls+x] = g.Cells[(y-1)*boardWidthWithWalls+x]
 		}
-	}
-	if g.AutoFallStep > minAutoFallStep {
-		g.AutoFallStep -= autoFallStepDecrement
 	}
 }
 
@@ -305,7 +388,7 @@ func (g *Game) drawCells(screen *ebiten.Image) {
 			if g.Cells[i] == nil {
 				continue
 			}
-			drawCell(screen, sprite.Cell, 6*cellSize+x*cellSize, y*cellSize, cellSize, cellSize, g.Cells[i].Tint)
+			drawCell(screen, sprite.Cell, 6*cellSize+x*cellSize, y*cellSize, cellSize, cellSize, g.Cells[i].Tint, 255)
 		}
 	}
 }
@@ -328,6 +411,15 @@ func (g *Game) drawHeld(screen *ebiten.Image) {
 	}
 }
 
+func (g *Game) drawScore(screen *ebiten.Image) {
+	text.Draw(screen, "Score", sprite.Roboto, 24, g.ScreenHeight-168, color.White)
+	text.Draw(screen, fmt.Sprintf("%d", g.Score), sprite.Roboto, 192, g.ScreenHeight-168, color.White)
+	text.Draw(screen, "Level", sprite.Roboto, 24, g.ScreenHeight-96, color.White)
+	text.Draw(screen, fmt.Sprintf("%d", g.Level+1), sprite.Roboto, 192, g.ScreenHeight-96, color.White)
+	text.Draw(screen, "Lines", sprite.Roboto, 24, g.ScreenHeight-24, color.White)
+	text.Draw(screen, fmt.Sprintf("%d", g.LinesCleared), sprite.Roboto, 192, g.ScreenHeight-24, color.White)
+}
+
 func (g *Game) renderPiece(screen, sprite *ebiten.Image, p piece.Piece, xoff, yoff int) {
 	for i := range p.Mask {
 		if p.Mask[i] == 0 {
@@ -335,13 +427,14 @@ func (g *Game) renderPiece(screen, sprite *ebiten.Image, p piece.Piece, xoff, yo
 		}
 		x := i % p.Width
 		y := i / p.Width
-		drawCell(screen, sprite, (p.X+x)*cellSize+xoff, (p.Y+y)*cellSize+yoff, cellSize, cellSize, p.Tint)
+		drawCell(screen, sprite, (p.X+x)*cellSize+xoff, (p.Y+y)*cellSize+yoff, cellSize, cellSize, p.Tint, uint8(p.Opacity))
 	}
 }
 
-func drawCell(screen *ebiten.Image, img *ebiten.Image, x, y, width, height int, tint cell.Tint) {
+func drawCell(screen *ebiten.Image, img *ebiten.Image, x, y, width, height int, tint cell.Tint, opacity uint8) {
 	var op ebiten.DrawImageOptions
 	op.ColorScale.ScaleWithColor(tint.NRGBA())
+	op.ColorScale.ScaleAlpha(float32(opacity) / 255)
 	op.GeoM.Scale(float64(width)/float64(img.Bounds().Dx()), float64(height)/float64(img.Bounds().Dy()))
 	op.GeoM.Translate(float64(x), float64(y))
 	screen.DrawImage(img, &op)
