@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"strings"
 
 	"github.com/deitrix/tetris/cell"
 	"github.com/deitrix/tetris/piece"
@@ -12,6 +13,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
 )
 
 const (
@@ -90,26 +93,38 @@ type Game struct {
 	Cells []*Cell
 	// Queue is the next 3 pieces that will fall
 	Queue [queueSize]piece.Piece
-
 	// DidHoldPiece is a flag that prevents the player from holding a piece more than once per turn.
 	DidHoldPiece bool
 	// HoldPiece is the piece that the player has held for later
 	HoldPiece *piece.Piece
-
 	// FallingPiece is the piece currently being controlled by the player
 	FallingPiece piece.Piece
 	// FastFalling is a flag that indicates whether the player is currently fast-falling the piece
 	FastFalling bool
-
+	// OpacityDirection is a flag that indicates whether the opacity of the piece is currently
+	// increasing or decreasing.
 	OpacityDirection bool
-	TicksSinceFall   int
-	TicksSinceMove   int
-	LastChanceTicks  int
-	ScreenWidth      int
-	ScreenHeight     int
-	Level            int
-	Score            int
-	LinesCleared     int
+	// TicksSinceFall is the number of ticks since the piece last fell. This is used to determine
+	// when the piece should fall automatically.
+	TicksSinceFall int
+	// TicksSinceMove is the number of ticks since the piece last moved. This is used during the
+	// "last chance" period to determine when the piece should be committed.
+	TicksSinceMove int
+	// LastChanceTicks is the number of ticks since the piece landed. This is used to determine when
+	// the piece should be committed during the "last chance" period.
+	LastChanceTicks int
+	// ScreenWidth is the width of the screen in pixels
+	ScreenWidth int
+	// ScreenHeight is the height of the screen in pixels
+	ScreenHeight int
+	// Level is the current level of the game
+	Level int
+	// Score is the current score of the game
+	Score int
+	// LinesCleared is the number of lines that have been cleared in the game
+	LinesCleared int
+	// ShowDebug is a flag that indicates whether debug information should be shown
+	ShowDebug bool
 }
 
 func NewGame() *Game {
@@ -122,7 +137,21 @@ func NewGame() *Game {
 	return g
 }
 
+func (g *Game) Reset() {
+	*g = *NewGame()
+}
+
 func (g *Game) Update() error {
+	if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+		g.Reset()
+		return nil
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyI) {
+		g.ShowDebug = !g.ShowDebug
+		return nil
+	}
+
 	if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
 		g.commitPiece()
 		g.Score += g.earlyCommitScore()
@@ -177,6 +206,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawQueue(screen)
 	g.drawHeld(screen)
 	g.drawScore(screen)
+	g.drawDebug(screen)
 }
 
 func (g *Game) Layout(_, _ int) (screenWidth, screenHeight int) {
@@ -412,12 +442,48 @@ func (g *Game) drawHeld(screen *ebiten.Image) {
 }
 
 func (g *Game) drawScore(screen *ebiten.Image) {
-	text.Draw(screen, "Score", sprite.Roboto, 24, g.ScreenHeight-168, color.White)
-	text.Draw(screen, fmt.Sprintf("%d", g.Score), sprite.Roboto, 192, g.ScreenHeight-168, color.White)
-	text.Draw(screen, "Level", sprite.Roboto, 24, g.ScreenHeight-96, color.White)
-	text.Draw(screen, fmt.Sprintf("%d", g.Level+1), sprite.Roboto, 192, g.ScreenHeight-96, color.White)
-	text.Draw(screen, "Lines", sprite.Roboto, 24, g.ScreenHeight-24, color.White)
-	text.Draw(screen, fmt.Sprintf("%d", g.LinesCleared), sprite.Roboto, 192, g.ScreenHeight-24, color.White)
+	drawText(screen, sprite.Roboto, "Score", 48, 24, g.ScreenHeight-168, color.White)
+	drawText(screen, sprite.Roboto, fmt.Sprintf("%d", g.Score), 48, 192, g.ScreenHeight-168, color.White)
+	drawText(screen, sprite.Roboto, "Level", 48, 24, g.ScreenHeight-96, color.White)
+	drawText(screen, sprite.Roboto, fmt.Sprintf("%d", g.Level+1), 48, 192, g.ScreenHeight-96, color.White)
+	drawText(screen, sprite.Roboto, "Lines", 48, 24, g.ScreenHeight-24, color.White)
+	drawText(screen, sprite.Roboto, fmt.Sprintf("%d", g.LinesCleared), 48, 192, g.ScreenHeight-24, color.White)
+}
+
+func (g *Game) drawDebug(screen *ebiten.Image) {
+	if !g.ShowDebug {
+		return
+	}
+	drawText(screen, sprite.Roboto, strings.Join([]string{
+		fmt.Sprintf("FPS: %0.2f", ebiten.ActualFPS()),
+		fmt.Sprintf("TPS: %0.2f", ebiten.CurrentTPS()),
+		fmt.Sprintf("Fall Speed: %d", getFallSpeed(g.Level)),
+		fmt.Sprintf("Ticks Since Fall: %d", g.TicksSinceFall),
+		fmt.Sprintf("Ticks Since Move: %d", g.TicksSinceMove),
+		fmt.Sprintf("Last Chance Ticks: %d", g.LastChanceTicks),
+		fmt.Sprintf("Fast Falling: %t", g.FastFalling),
+		fmt.Sprintf("Did Hold Piece: %t", g.DidHoldPiece),
+	}, "\n"), 32, 24, 256, color.White)
+}
+
+var fontFaceCache = make(map[*opentype.Font]map[float64]font.Face)
+
+func drawText(img *ebiten.Image, f *opentype.Font, t string, size float64, x, y int, c color.Color) {
+	if _, ok := fontFaceCache[f]; !ok {
+		fontFaceCache[f] = make(map[float64]font.Face)
+	}
+	if _, ok := fontFaceCache[f][size]; !ok {
+		var err error
+		fontFaceCache[f][size], err = opentype.NewFace(f, &opentype.FaceOptions{
+			Size:    size,
+			DPI:     72,
+			Hinting: font.HintingNone,
+		})
+		if err != nil {
+			log.Fatalf("failed to create face: %v", err)
+		}
+	}
+	text.Draw(img, t, fontFaceCache[f][size], x, y, c)
 }
 
 func (g *Game) renderPiece(screen, sprite *ebiten.Image, p piece.Piece, xoff, yoff int) {
