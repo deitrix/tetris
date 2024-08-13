@@ -153,8 +153,8 @@ func (g *Game) Update() error {
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
-		g.commitPiece()
 		g.Score += g.earlyCommitScore()
+		g.commitPiece()
 		return nil
 	}
 
@@ -463,6 +463,7 @@ func (g *Game) drawDebug(screen *ebiten.Image) {
 		fmt.Sprintf("Last Chance Ticks: %d", g.LastChanceTicks),
 		fmt.Sprintf("Fast Falling: %t", g.FastFalling),
 		fmt.Sprintf("Did Hold Piece: %t", g.DidHoldPiece),
+		fmt.Sprintf("Early-commit Score: %d", g.earlyCommitScore()),
 	}, "\n"), 32, 24, 256, color.White)
 }
 
